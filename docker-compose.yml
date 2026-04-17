@@ -1,0 +1,72 @@
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: aiprompt_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       promptlibrary
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d promptlibrary"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: aiprompt_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Django Backend ─────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aiprompt_backend
+    restart: unless-stopped
+    environment:
+      SECRET_KEY:   "change-me-in-production-use-long-random-string"
+      DEBUG:        "False"
+      DB_NAME:      promptlibrary
+      DB_USER:      postgres
+      DB_PASSWORD:  postgres
+      DB_HOST:      db
+      DB_PORT:      "5432"
+      REDIS_HOST:   redis
+      REDIS_PORT:   "6379"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  # ── React Frontend (nginx) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aiprompt_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
